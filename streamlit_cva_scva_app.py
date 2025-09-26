@@ -1,11 +1,11 @@
 """
-Streamlit prototype: CVA SCVA calculator with PDF preview (Base64 embed)
+Streamlit prototype: CVA SCVA calculator with PDF preview + article text extraction
 
 Changes in this version:
-- PDF embedding now uses Base64 encoding, so the regulation PDF is always displayed correctly (fixes the issue where the app showed itself instead of the PDF).
-- Place `CRR_575_2013.pdf` in the repo root. On app launch, it will be read and embedded into an iframe.
-- Sidebar article links (Art. 381–386) still supported. We use pdfplumber to detect pages if possible, otherwise fallback to approximate page numbers.
-
+- PDF embedding improved: uses st.components.v1.html for better rendering.
+- Sidebar includes external links: EUR-Lex regulation and Custom GPT link.
+- Download buttons restored: Excel export if openpyxl is available, fallback to CSV exports.
+- Article text extraction: when selecting an article, its text (if found via pdfplumber) is displayed below the PDF.
 """
 
 import streamlit as st
@@ -25,7 +25,6 @@ except Exception:
 st.set_page_config(page_title='CVA SCVA Prototype', layout='wide')
 
 # --- Helper functions ---
-
 def discount_factor(M, r=0.05):
     if M <= 0:
         return 1.0
@@ -52,20 +51,23 @@ def simple_sa_ccr_estimate(notional, asset_class='rates'):
 # PDF utilities
 PDF_FILENAME = 'CRR_575_2013.pdf'
 
-def find_article_pages(pdf_path, articles):
+def find_article_pages_and_text(pdf_path, articles):
     mapping = {}
+    texts = {}
     if not PDFPLUMBER_AVAILABLE:
-        return mapping
+        return mapping, texts
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for i, page in enumerate(pdf.pages, start=1):
-                text = (page.extract_text() or '').lower()
+                text = (page.extract_text() or '')
+                lower = text.lower()
                 for art in articles:
-                    if art.lower() in text and art not in mapping:
+                    if art.lower() in lower and art not in mapping:
                         mapping[art] = i
-        return mapping
+                        texts[art] = text
+        return mapping, texts
     except Exception:
-        return {}
+        return {}, {}
 
 # --- Sample data ---
 SAMPLE = pd.DataFrame([
@@ -90,6 +92,12 @@ sel_article = st.sidebar.radio('Open article', ARTICLES)
 st.sidebar.markdown(f"**Method used:** {method}")
 st.sidebar.markdown(f"**EU exemptions applied:** {'Yes' if apply_eu_exemptions else 'No'}")
 st.sidebar.markdown(f"**EAD source:** {ead_source}")
+
+st.sidebar.markdown('---')
+st.sidebar.markdown('**External tools / links**')
+st.sidebar.markdown('- [EUR-Lex: CRR Regulation](https://eur-lex.europa.eu/eli/reg/2013/575/oj/eng)')
+CUSTOM_GPT_URL = 'https://chat.openai.com/g/g-68d3fd8f6cb881919a46c5e96e188006-cva-calculation'
+st.sidebar.markdown(f"- [Custom GPT: CVA Calculation]({CUSTOM_GPT_URL})")
 
 # --- Main ---
 st.title('CVA — Standardised CVA (SCVA) Prototype')
@@ -147,19 +155,39 @@ with col_left:
     st.metric('K', f"{K:.2f}")
     st.metric('RWA', f"{RWA:.2f}")
 
+    # Export section
+    out = io.BytesIO()
+    try:
+        import openpyxl
+        with pd.ExcelWriter(out, engine='openpyxl') as writer:
+            edited_df.to_excel(writer, sheet_name='Inputs', index=False)
+            agg.to_excel(writer, sheet_name='Counterparty_Aggregated', index=False)
+            pd.DataFrame([{'Metric':'K','Value':K},{'Metric':'RWA','Value':RWA}]).to_excel(writer, sheet_name='Portfolio_Results', index=False)
+        out.seek(0)
+        st.download_button('Download results (Excel)', data=out, file_name='CVA_results.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception:
+        st.warning('Excel export unavailable — offering CSVs instead.')
+        st.download_button('Download Inputs (CSV)', data=edited_df.to_csv(index=False).encode(), file_name='inputs.csv', mime='text/csv')
+        st.download_button('Download Aggregated (CSV)', data=agg.to_csv(index=False).encode(), file_name='aggregated.csv', mime='text/csv')
+
 with col_right:
     st.subheader('Regulation preview')
     pdf_path = Path(PDF_FILENAME)
     if pdf_path.exists():
-        mapping = find_article_pages(str(pdf_path), ARTICLES)
+        mapping, texts = find_article_pages_and_text(str(pdf_path), ARTICLES)
         fallback = {'Article 381':400,'Article 382':403,'Article 383':406,'Article 384':409,'Article 385':412,'Article 386':416}
         page = mapping.get(sel_article, fallback.get(sel_article, 1))
         try:
             with open(pdf_path, "rb") as f:
                 base64_pdf = base64.b64encode(f.read()).decode("utf-8")
-            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}#page={page}" width="100%" height="800" type="application/pdf"></iframe>'
-            st.markdown(pdf_display, unsafe_allow_html=True)
-        except Exception as e:
+            pdf_html = f'<iframe src="data:application/pdf;base64,{base64_pdf}#page={page}" width="100%" height="600" type="application/pdf"></iframe>'
+            st.components.v1.html(pdf_html, height=620)
+        except Exception:
             st.error('Could not load PDF preview.')
+
+        # Show extracted text if available
+        if sel_article in texts:
+            st.subheader(f'Text of {sel_article}')
+            st.text(texts[sel_article])
     else:
         st.info(f'Put {PDF_FILENAME} in the repo root to enable preview.')

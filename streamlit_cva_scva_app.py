@@ -7,6 +7,7 @@ Changes:
 - Extracted article text is highlighted (article heading bold + blue).
 - Sidebar keeps external links (EUR-Lex + Custom GPT).
 - Excel/CSV export logic unchanged.
+- Improved article detection with regex (handles 'Art. 386', 'ARTICLE 386', etc.).
 """
 
 import streamlit as st
@@ -14,6 +15,7 @@ import pandas as pd
 import numpy as np
 import math
 import io
+import re
 from pathlib import Path
 
 try:
@@ -62,7 +64,9 @@ def find_article_pages_and_text(pdf_path, articles):
                 text = (page.extract_text() or "")
                 lower = text.lower()
                 for art in articles:
-                    if art.lower() in lower and art not in mapping:
+                    num = art.split()[1]  # e.g. "386"
+                    # Match 'Article 386', 'Art. 386', '386.' etc.
+                    if re.search(rf"(article|art\.?)[\s\u00A0]*{num}\b", lower) and art not in mapping:
                         mapping[art] = i
                         texts[art] = text
         return mapping, texts

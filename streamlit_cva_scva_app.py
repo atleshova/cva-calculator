@@ -187,7 +187,9 @@ with col_right:
         page = mapping.get(sel_article, fallback.get(sel_article, 1))
 
         # GitHub-hosted PDF iframe
-        st.components.v1.iframe(f"{GITHUB_PDF_URL}#page={page}", height=600)
+        PDF_VIEWER = f"https://docs.google.com/gview?embedded=true&url={GITHUB_PDF_URL}"
+        st.components.v1.iframe(f"{PDF_VIEWER}#page={page}", height=600)
+
 
         # Extracted article text
         if sel_article in texts:

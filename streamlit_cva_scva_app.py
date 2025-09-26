@@ -180,21 +180,22 @@ with col_left:
 
 with col_right:
     st.subheader("Regulation preview")
+
+    # Always show the full PDF (Google Docs viewer, no page jump)
+    PDF_VIEWER = f"https://docs.google.com/gview?embedded=true&url={GITHUB_PDF_URL}"
+    st.components.v1.iframe(PDF_VIEWER, height=600)
+
+    # Extracted text based on selection
     pdf_path = Path(PDF_FILENAME)
     if pdf_path.exists():
         mapping, texts = find_article_pages_and_text(str(pdf_path), ARTICLES)
-        fallback = {"Article 381":400,"Article 382":403,"Article 383":406,"Article 384":409,"Article 385":412,"Article 386":416}
-        page = mapping.get(sel_article, fallback.get(sel_article, 1))
 
-        # GitHub-hosted PDF iframe
-        PDF_VIEWER = f"https://docs.google.com/gview?embedded=true&url={GITHUB_PDF_URL}"
-        st.components.v1.iframe(f"{PDF_VIEWER}#page={page}", height=600)
-
-
-        # Extracted article text
         if sel_article in texts:
             st.subheader(f"Extracted text for {sel_article}")
+            # Highlight article heading in blue
             highlighted = texts[sel_article].replace(sel_article, f"**:blue[{sel_article}]**")
             st.markdown(f"```text\n{highlighted}\n```")
+        else:
+            st.info(f"No extracted text available for {sel_article}.")
     else:
         st.info(f"Upload {PDF_FILENAME} in the repo root to enable preview.")
